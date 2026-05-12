@@ -303,8 +303,7 @@ if 'gex_data' in st.session_state:
         yaxis=dict(
             showgrid=True, 
             gridcolor="#2d3748",
-            tickfont=dict(size=11),
-            rangeslider=dict(visible=True, thickness=0.05)  # Add range slider for zooming
+            tickfont=dict(size=11)
         ),
         font=dict(size=12)
     )
