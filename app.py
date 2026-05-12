@@ -30,26 +30,37 @@ st.markdown("""
 st.title("🚀 GEX Dashboard Pro")
 st.markdown("**Horizontal Profile • Call Wall • Put Wall • Gamma Flip • Zero Gamma**")
 
-# Sidebar for mode selection
-with st.sidebar:
-    st.header("⚙️ Settings")
-    mode = st.radio("Data Source", ["CSV Upload", "FlashAlpha API"], index=0)
-    
-    if mode == "FlashAlpha API":
-        EXPIRATION = st.text_input("Expiration (YYYY-MM-DD)", value="2026-05-15")
-        st.caption("💡 Fixed expiration saves 1 API call/day")
+# Mode selection - PROMINENT at top
+st.markdown("### 📌 Select Mode")
+mode = st.radio(
+    "Choose your data source:",
+    ["📁 CSV Upload (Unlimited)", "🔌 FlashAlpha API (5/day)"],
+    index=0,
+    horizontal=True
+)
+
+# Extract clean mode
+mode_clean = "CSV" if "CSV" in mode else "API"
+
+if mode_clean == "API":
+    EXPIRATION = st.text_input("Expiration Date (YYYY-MM-DD)", value="2026-05-15", key="exp_input")
+    st.caption("💡 Fixed expiration = May 15, 2026 (this Friday) — saves 1 API call per day")
 
 # Main content
 col1, col2 = st.columns([3, 1])
 
 with col1:
     ticker = st.text_input("**Ticker**", value="SPX", key="ticker_input").upper().strip()
+    
+    # CBOE Download Link (only show in CSV mode)
+    if mode_clean == "CSV":
+        st.caption(f"📥 [Click here to download {ticker} CSV from CBOE](https://www.cboe.com/delayed_quotes/{ticker.lower()}/quote_table/)")
 
 # Data loading based on mode
 df = None
 current_price = 0
 
-if mode == "CSV Upload":
+if mode_clean == "CSV":
     uploaded_file = st.file_uploader(f"Upload {ticker} CSV from CBOE", type=["csv"])
     
     if uploaded_file is not None:
@@ -114,7 +125,7 @@ else:  # FlashAlpha API
                 st.error(f"Error: {e}")
 
 # Process data for both modes
-if mode == "CSV Upload" and df is not None:
+if mode_clean == "CSV" and df is not None:
     current_price = st.number_input("Current Price", value=current_price, step=0.01, key="price_input")
     
     # Column detection
@@ -282,7 +293,7 @@ if 'gex_data' in st.session_state:
     # Footer info
     st.caption(f"📊 {ticker} | Spot: ${spot:,.2f} | Net GEX: ${net_gex:,.2f}B | Updated: Just now")
     
-    if mode == "FlashAlpha API":
+    if mode_clean == "API":
         st.caption("⚠️ 1 of 5 daily API requests used • Resets at midnight UTC")
 
 else:
