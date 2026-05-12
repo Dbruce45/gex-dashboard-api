@@ -258,38 +258,55 @@ if 'gex_data' in st.session_state:
     
     # Key level lines
     if spot:
-        fig.add_hline(y=spot, line_dash="dash", line_color="#ffd93d", line_width=2.5, 
+        fig.add_hline(y=spot, line_dash="dash", line_color="#ffd93d", line_width=3, 
                       annotation_text=f"CURRENT ({spot:.0f})", annotation_position="right",
-                      annotation_font_color="#ffd93d", annotation_font_size=11)
+                      annotation_font_color="#ffd93d", annotation_font_size=13)
     
     if gamma_flip:
-        fig.add_hline(y=gamma_flip, line_dash="dot", line_color="#ffffff", line_width=2,
+        fig.add_hline(y=gamma_flip, line_dash="dot", line_color="#ffffff", line_width=2.5,
                       annotation_text=f"GAMMA FLIP ({gamma_flip:.0f})", annotation_position="left",
-                      annotation_font_color="#ffffff", annotation_font_size=10)
+                      annotation_font_color="#ffffff", annotation_font_size=12)
     
     if call_wall:
-        fig.add_hline(y=call_wall, line_dash="solid", line_color="#00d26a", line_width=1.5,
+        fig.add_hline(y=call_wall, line_dash="solid", line_color="#00d26a", line_width=2,
                       annotation_text=f"CALL WALL ({call_wall:.0f})", annotation_position="right",
-                      annotation_font_color="#00d26a", annotation_font_size=10)
+                      annotation_font_color="#00d26a", annotation_font_size=11)
     
     if put_wall:
-        fig.add_hline(y=put_wall, line_dash="solid", line_color="#ff4757", line_width=1.5,
+        fig.add_hline(y=put_wall, line_dash="solid", line_color="#ff4757", line_width=2,
                       annotation_text=f"PUT WALL ({put_wall:.0f})", annotation_position="left",
-                      annotation_font_color="#ff4757", annotation_font_size=10)
+                      annotation_font_color="#ff4757", annotation_font_size=11)
     
     # Zero line
     fig.add_vline(x=0, line_dash="solid", line_color="#4a5568", line_width=1)
     
+    # Auto-zoom y-axis to relevant strike range (around current price)
+    if spot:
+        y_min = spot * 0.82  # Show strikes from ~18% below current price
+        y_max = spot * 1.18  # Show strikes up to ~18% above current price
+        fig.update_yaxes(range=[y_min, y_max])
+    
     fig.update_layout(
         template="plotly_dark",
-        height=700,
-        margin=dict(l=80, r=40, t=20, b=40),
+        height=900,  # Taller chart for better readability
+        margin=dict(l=100, r=60, t=30, b=50),
         xaxis_title="GEX ($ notional per 1% move)",
         yaxis_title="Strike Price",
         showlegend=False,
         hovermode="closest",
-        xaxis=dict(showgrid=True, gridcolor="#2d3748", zerolinecolor="#4a5568"),
-        yaxis=dict(showgrid=True, gridcolor="#2d3748")
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor="#2d3748", 
+            zerolinecolor="#4a5568",
+            tickfont=dict(size=11)
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor="#2d3748",
+            tickfont=dict(size=11),
+            rangeslider=dict(visible=True, thickness=0.05)  # Add range slider for zooming
+        ),
+        font=dict(size=12)
     )
     
     st.plotly_chart(fig, use_container_width=True)
