@@ -182,8 +182,12 @@ if 'gex_data' in st.session_state:
     call_wall = data['call_wall']
     put_wall = data['put_wall']
     
-    # Calculate Zero Gamma (strike closest to zero GEX or interpolated)
+    # Format display values (fix for f-string formatting)
+    call_wall_display = f"{call_wall:.0f}" if call_wall else "N/A"
+    put_wall_display = f"{put_wall:.0f}" if put_wall else "N/A"
+    gamma_flip_display = f"{gamma_flip:.0f}" if gamma_flip else "N/A"
     zero_gamma = gex_by_strike.index[np.argmin(np.abs(gex_by_strike.values))]
+    zero_gamma_display = f"{zero_gamma:.0f}"
     
     # === METRICS PANEL ===
     st.markdown("### 📊 Key Levels")
@@ -204,7 +208,7 @@ if 'gex_data' in st.session_state:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Call Wall</div>
-            <div class="metric-value positive">{call_wall:.0f if call_wall else 'N/A'}</div>
+            <div class="metric-value positive">{call_wall_display}</div>
             <div style="font-size: 11px; color: #8892b0;">Strong Resistance</div>
         </div>
         """, unsafe_allow_html=True)
@@ -213,7 +217,7 @@ if 'gex_data' in st.session_state:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Put Wall</div>
-            <div class="metric-value negative">{put_wall:.0f if put_wall else 'N/A'}</div>
+            <div class="metric-value negative">{put_wall_display}</div>
             <div style="font-size: 11px; color: #8892b0;">Strong Support</div>
         </div>
         """, unsafe_allow_html=True)
@@ -222,7 +226,7 @@ if 'gex_data' in st.session_state:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Gamma Flip</div>
-            <div class="metric-value neutral">{gamma_flip:.0f}</div>
+            <div class="metric-value neutral">{gamma_flip_display}</div>
             <div style="font-size: 11px; color: #8892b0;">Dealer Hedging Flip</div>
         </div>
         """, unsafe_allow_html=True)
@@ -231,7 +235,7 @@ if 'gex_data' in st.session_state:
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-label">Zero Gamma</div>
-            <div class="metric-value neutral">{zero_gamma:.0f}</div>
+            <div class="metric-value neutral">{zero_gamma_display}</div>
             <div style="font-size: 11px; color: #8892b0;">GEX = 0</div>
         </div>
         """, unsafe_allow_html=True)
@@ -297,5 +301,3 @@ if 'gex_data' in st.session_state:
         st.caption("⚠️ 1 of 5 daily API requests used • Resets at midnight UTC")
 
 else:
-    st.info("👆 Upload a CSV or click 'Load GEX Data' to begin")
-    st.caption("💡 Tip: For best results, use SPX or SPY with active options chains")
