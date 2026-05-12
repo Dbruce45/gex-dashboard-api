@@ -30,7 +30,7 @@ st.markdown("""
 st.title("🚀 GEX Dashboard Pro")
 st.markdown("**Horizontal Profile • Call Wall • Put Wall • Gamma Flip • Zero Gamma**")
 
-# Mode selection
+# Mode selection - PROMINENT at top
 st.markdown("### 📌 Select Mode")
 mode = st.radio(
     "Choose your data source:",
@@ -38,18 +38,25 @@ mode = st.radio(
     index=0,
     horizontal=True
 )
+
+# Extract clean mode
 mode_clean = "CSV" if "CSV" in mode else "API"
 
 if mode_clean == "API":
     EXPIRATION = st.text_input("Expiration Date (YYYY-MM-DD)", value="2026-05-15", key="exp_input")
     st.caption("💡 Fixed expiration = May 15, 2026 (this Friday) — saves 1 API call per day")
 
+# Main content
 col1, col2 = st.columns([3, 1])
+
 with col1:
     ticker = st.text_input("**Ticker**", value="SPX", key="ticker_input").upper().strip()
+    
+    # CBOE Download Link (only show in CSV mode)
     if mode_clean == "CSV":
         st.caption(f"📥 [Click here to download {ticker} CSV from CBOE](https://www.cboe.com/delayed_quotes/{ticker.lower()}/quote_table/)")
 
+# Data loading based on mode
 df = None
 current_price = 0
 
@@ -57,6 +64,7 @@ if mode_clean == "CSV":
     uploaded_file = st.file_uploader(f"Upload {ticker} CSV from CBOE", type=["csv"])
     
     if uploaded_file is not None:
+        # Auto-detect header row
         content = uploaded_file.getvalue().decode("utf-8")
         lines = content.splitlines()
         header_row = next((i for i, line in enumerate(lines) if "Strike" in line), None)
@@ -68,27 +76,37 @@ if mode_clean == "CSV":
         uploaded_file.seek(0)
         df = pd.read_csv(uploaded_file, skiprows=header_row, on_bad_lines='skip')
         
-        # Expiration filtering
+        # Check for multiple expirations and let user select
         exp_col = next((col for col in df.columns if 'expir' in str(col).lower()), None)
         if exp_col:
+            # Clean expiration values (strip whitespace)
             df[exp_col] = df[exp_col].astype(str).str.strip()
             unique_exps = sorted(df[exp_col].unique())
+            
             if len(unique_exps) > 1:
-                st.warning(f"⚠️ Multiple expirations detected ({len(unique_exps)}). Please select one below.")
+                st.warning(f"⚠️ Multiple expirations detected ({len(unique_exps)}). Please select one below to avoid incorrect calculations.")
                 selected_exp = st.selectbox("Select Expiration to Analyze:", unique_exps, index=0)
+                
+                # Robust filtering
                 before_rows = len(df)
                 df = df[df[exp_col] == selected_exp].copy()
                 after_rows = len(df)
-                st.info(f"✅ Analyzing only: **{selected_exp}** | Rows: {before_rows} → {after_rows}")
+                
+                st.info(f"✅ Analyzing only: **{selected_exp}**  |  Rows before filter: {before_rows} → after filter: {after_rows}")
+                
                 if after_rows == 0:
-                    st.error("Filtering removed all rows. Try selecting a different expiration.")
+                    st.error("❌ Filtering removed all rows! The selected expiration string may not match exactly. Try a different one or check the raw data.")
             else:
                 st.caption(f"📅 Single expiration detected: {unique_exps[0]}")
+        else:
+            st.caption("📅 No expiration column found - analyzing all data")
         
+        # Standardize Strike
         strike_col = next((col for col in df.columns if 'strike' in str(col).lower()), None)
         df = df.dropna(subset=[strike_col])
         df = df.rename(columns={strike_col: 'Strike'})
         
+        # Auto-fetch price
         try:
             t = yf.Ticker(ticker if ticker != "SPX" else "^GSPC")
             price = t.info.get('regularMarketPrice') or t.info.get('currentPrice') or t.history(period="1d")['Close'].iloc[-1]
@@ -96,21 +114,23 @@ if mode_clean == "CSV":
         except:
             current_price = 739.24
 
-else:  # FlashAlpha
+else:  # FlashAlpha API
     api_key = st.secrets.get("FLASHALPHA_KEY")
     if not api_key:
         st.error("⚠️ Add FLASHALPHA_KEY in Streamlit Secrets")
         st.stop()
     
     if st.button("📊 Load GEX Data", type="primary"):
-        with st.spinner(f"Fetching {ticker}..."):
+        with st.spinner(f"Fetching {ticker} (exp: {EXPIRATION})..."):
             try:
                 fa = FlashAlpha(api_key)
                 gex_data = fa.gex(ticker, expiration=EXPIRATION)
+                
                 net_gex = gex_data.get('net_gex', 0) / 1_000_000_000
                 gamma_flip = gex_data.get('gamma_flip')
                 spot = gex_data.get('spot_price') or gex_data.get('underlying_price')
                 current_price = spot or 739.24
+                
                 gex_by_strike = gex_data.get('gex_by_strike', {})
                 if isinstance(gex_by_strike, list):
                     gex_dict = {item['strike']: item['net_gex'] for item in gex_by_strike}
@@ -118,6 +138,7 @@ else:  # FlashAlpha
                 elif isinstance(gex_by_strike, dict):
                     gex_by_strike = pd.Series(gex_by_strike)
                 
+                # Store in session state for rendering
                 st.session_state['gex_data'] = {
                     'net_gex': net_gex,
                     'gamma_flip': gamma_flip,
@@ -126,47 +147,70 @@ else:  # FlashAlpha
                     'call_wall': gex_by_strike[gex_by_strike > 0].idxmax() if any(gex_by_strike > 0) else None,
                     'put_wall': gex_by_strike[gex_by_strike < 0].idxmin() if any(gex_by_strike < 0) else None
                 }
-                st.success("✅ Loaded from FlashAlpha (1/5 requests used)")
+                st.success(f"✅ Loaded! (1/5 requests used today)")
             except Exception as e:
                 st.error(f"Error: {e}")
 
-# Process CSV
+# Process data for both modes
 if mode_clean == "CSV" and df is not None:
     current_price = st.number_input("Current Price", value=current_price, step=0.01, key="price_input")
     
+    # Column detection
     call_gamma_col = next((col for col in df.columns if 'gamma' in str(col).lower() and ('call' in str(col).lower() or col == 'Gamma')), None)
     put_gamma_col = next((col for col in df.columns if 'gamma' in str(col).lower() and ('put' in str(col).lower() or col == 'Gamma.1')), None)
     call_oi_col = next((col for col in df.columns if 'open interest' in str(col).lower() and ('call' in str(col).lower() or col == 'Open Interest')), None)
     put_oi_col = next((col for col in df.columns if 'open interest' in str(col).lower() and ('put' in str(col).lower() or col == 'Open Interest.1')), None)
     
     if not call_gamma_col or not put_gamma_col:
-        st.error("Could not detect Gamma columns.")
+        st.error("Could not detect Gamma columns. Check your CSV format.")
         st.stop()
     
-    df['Call_GEX'] = df[call_gamma_col] * df[call_oi_col] * 100 * (current_price ** 2) * 0.01
-    df['Put_GEX'] = df[put_gamma_col] * df[put_oi_col] * 100 * (current_price ** 2) * 0.01 * (-1)
+    # Calculate GEX - Baseline formula (per 1% move)
+    df['Call_GEX_v1'] = df[call_gamma_col] * df[call_oi_col] * 100 * (current_price ** 2) * 0.01
+    df['Put_GEX_v1'] = df[put_gamma_col] * df[put_oi_col] * 100 * (current_price ** 2) * 0.01 * (-1)
+    
+    # Variation 2: Total notional (no *0.01)
+    df['Call_GEX_v2'] = df[call_gamma_col] * df[call_oi_col] * 100 * (current_price ** 2)
+    df['Put_GEX_v2'] = df[put_gamma_col] * df[put_oi_col] * 100 * (current_price ** 2) * (-1)
+    
+    # Variation 3: Simpler total gamma (gamma * OI * spot)
+    df['Call_GEX_v3'] = df[call_gamma_col] * df[call_oi_col] * current_price
+    df['Put_GEX_v3'] = df[put_gamma_col] * df[put_oi_col] * current_price * (-1)
+    
+    # Use Variation 1 as default for key levels and chart
+    df['Call_GEX'] = df['Call_GEX_v1']
+    df['Put_GEX'] = df['Put_GEX_v1']
     
     net_gex = (df['Call_GEX'].sum() + df['Put_GEX'].sum()) / 1_000_000_000
     gex_by_strike = df.groupby('Strike')[['Call_GEX', 'Put_GEX']].sum().sum(axis=1)
     
-    # Diagnostics
+    # === DIAGNOSTICS ===
     total_call_oi = df[call_oi_col].sum()
     total_put_oi = df[put_oi_col].sum()
     avg_call_gamma = df[call_gamma_col].mean()
     avg_put_gamma = df[put_gamma_col].mean()
-    raw_call_gex = df['Call_GEX'].sum()
-    raw_put_gex = df['Put_GEX'].sum()
     
-    with st.expander("🔍 Diagnostics"):
-        st.write(f"**Columns:** Call Gamma=`{call_gamma_col}`, Put Gamma=`{put_gamma_col}`")
-        st.write(f"**Total OI:** Call={total_call_oi:,.0f} | Put={total_put_oi:,.0f}")
-        st.write(f"**Avg Gamma:** Call={avg_call_gamma:.6f} | Put={avg_put_gamma:.6f}")
-        st.write(f"**Raw GEX Sum:** Call=${raw_call_gex:,.0f} | Put=${raw_put_gex:,.0f}")
-        st.write(f"**Net GEX (raw):** ${(raw_call_gex + raw_put_gex):,.0f}")
+    # Calculate all variations
+    net_v1 = (df['Call_GEX_v1'].sum() + df['Put_GEX_v1'].sum()) / 1_000_000_000
+    net_v2 = (df['Call_GEX_v2'].sum() + df['Put_GEX_v2'].sum()) / 1_000_000_000
+    net_v3 = (df['Call_GEX_v3'].sum() + df['Put_GEX_v3'].sum()) / 1_000_000_000
+    
+    with st.expander("🔍 Diagnostics + Formula Experiments (click to expand)"):
+        st.write(f"**Detected Columns:** Call Gamma=`{call_gamma_col}`, Put Gamma=`{put_gamma_col}`")
+        st.write(f"**Data Summary:** Total Call OI={total_call_oi:,.0f} | Put OI={total_put_oi:,.0f}")
+        st.write(f"Avg Gamma: Call={avg_call_gamma:.6f} | Put={avg_put_gamma:.6f}")
+        
+        st.markdown("**GEX Formula Experiments:**")
+        st.write(f"- **V1 (Current - per 1% move)**: ${net_v1:,.2f}B")
+        st.write(f"- **V2 (Total notional, no *0.01)**: ${net_v2:,.2f}B")
+        st.write(f"- **V3 (gamma × OI × spot)**: ${net_v3:,.2f}B")
+        
+        st.caption("Compare these to FlashAlpha. V1 is what we use for the chart and key levels.")
     
     call_wall = gex_by_strike[gex_by_strike > 0].idxmax() if any(gex_by_strike > 0) else None
     put_wall = gex_by_strike[gex_by_strike < 0].idxmin() if any(gex_by_strike < 0) else None
     
+    # Gamma Flip (closest to current price)
     sorted_gex = gex_by_strike.sort_index()
     sign_change = np.where(np.diff(np.sign(sorted_gex)))[0]
     if len(sign_change) > 0:
@@ -190,7 +234,7 @@ if mode_clean == "CSV" and df is not None:
         'put_wall': put_wall
     }
 
-# Render
+# Render dashboard if we have data
 if 'gex_data' in st.session_state:
     data = st.session_state['gex_data']
     gex_by_strike = data['gex_by_strike']
@@ -200,72 +244,144 @@ if 'gex_data' in st.session_state:
     call_wall = data['call_wall']
     put_wall = data['put_wall']
     
+    # Format display values (fix for f-string formatting)
     call_wall_display = f"{call_wall:.0f}" if call_wall else "N/A"
     put_wall_display = f"{put_wall:.0f}" if put_wall else "N/A"
     gamma_flip_display = f"{gamma_flip:.0f}" if gamma_flip else "N/A"
     zero_gamma = gex_by_strike.index[np.argmin(np.abs(gex_by_strike.values))]
     zero_gamma_display = f"{zero_gamma:.0f}"
     
+    # === METRICS PANEL ===
     st.markdown("### 📊 Key Levels")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        color = "positive" if net_gex > 0 else "negative"
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Net GEX</div><div class="metric-value {color}">${net_gex:,.2f}B</div></div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Call Wall</div><div class="metric-value positive">{call_wall_display}</div></div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Put Wall</div><div class="metric-value negative">{put_wall_display}</div></div>', unsafe_allow_html=True)
-    with c4:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Gamma Flip</div><div class="metric-value neutral">{gamma_flip_display}</div></div>', unsafe_allow_html=True)
-    with c5:
-        st.markdown(f'<div class="metric-card"><div class="metric-label">Zero Gamma</div><div class="metric-value neutral">{zero_gamma_display}</div></div>', unsafe_allow_html=True)
     
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        color = "positive" if net_gex > 0 else "negative"
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Net GEX</div>
+            <div class="metric-value {color}">${net_gex:,.2f}B</div>
+            <div style="font-size: 11px; color: #8892b0;">{'Positive = Stabilizing' if net_gex > 0 else 'Negative = Volatile'}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Call Wall</div>
+            <div class="metric-value positive">{call_wall_display}</div>
+            <div style="font-size: 11px; color: #8892b0;">Strong Resistance</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Put Wall</div>
+            <div class="metric-value negative">{put_wall_display}</div>
+            <div style="font-size: 11px; color: #8892b0;">Strong Support</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Gamma Flip</div>
+            <div class="metric-value neutral">{gamma_flip_display}</div>
+            <div style="font-size: 11px; color: #8892b0;">Dealer Hedging Flip</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col5:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Zero Gamma</div>
+            <div class="metric-value neutral">{zero_gamma_display}</div>
+            <div style="font-size: 11px; color: #8892b0;">GEX = 0</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # === HORIZONTAL GEX CHART ===
     st.markdown("### 📈 GEX Profile by Strike")
+    
     fig = go.Figure()
+    
+    # Main horizontal bar chart
     fig.add_trace(go.Bar(
-        x=gex_by_strike.values, y=gex_by_strike.index, orientation='h',
-        marker_color=['#00d26a' if v > 0 else '#ff4757' for v in gex_by_strike.values],
+        x=gex_by_strike.values,
+        y=gex_by_strike.index,
+        orientation='h',
+        marker_color=['#00d26a' if val > 0 else '#ff4757' for val in gex_by_strike.values],
+        opacity=0.9,
+        name="GEX",
         hovertemplate='Strike: %{y}<br>GEX: %{x:,.0f}<extra></extra>'
     ))
     
+    # Key level lines
     if spot:
-        fig.add_hline(y=spot, line_dash="dash", line_color="#ffd93d", line_width=3,
+        fig.add_hline(y=spot, line_dash="dash", line_color="#ffd93d", line_width=3, 
                       annotation_text=f"CURRENT ({spot:.0f})", annotation_position="right",
-                      annotation_font_color="#ffd93d", annotation_font_size=12)
+                      annotation_font_color="#ffd93d", annotation_font_size=13)
+    
     if gamma_flip:
         fig.add_hline(y=gamma_flip, line_dash="dot", line_color="#ffffff", line_width=2.5,
                       annotation_text=f"GAMMA FLIP ({gamma_flip:.0f})", annotation_position="left",
-                      annotation_font_color="#ffffff", annotation_font_size=11)
+                      annotation_font_color="#ffffff", annotation_font_size=12)
+    
     if call_wall:
         fig.add_hline(y=call_wall, line_dash="solid", line_color="#00d26a", line_width=2,
                       annotation_text=f"CALL WALL ({call_wall:.0f})", annotation_position="right",
-                      annotation_font_color="#00d26a", annotation_font_size=10)
+                      annotation_font_color="#00d26a", annotation_font_size=11)
+    
     if put_wall:
         fig.add_hline(y=put_wall, line_dash="solid", line_color="#ff4757", line_width=2,
                       annotation_text=f"PUT WALL ({put_wall:.0f})", annotation_position="left",
-                      annotation_font_color="#ff4757", annotation_font_size=10)
+                      annotation_font_color="#ff4757", annotation_font_size=11)
     
+    # Zero line
     fig.add_vline(x=0, line_dash="solid", line_color="#4a5568", line_width=1)
     
-    if spot:
-        y_min = spot * 0.82
-        y_max = spot * 1.18
+    # Auto-zoom y-axis to show all strikes with meaningful GEX
+    strikes_with_gex = gex_by_strike[abs(gex_by_strike) > 0.001 * abs(gex_by_strike).max()].index
+    if len(strikes_with_gex) > 0:
+        y_min = strikes_with_gex.min() - 2
+        y_max = strikes_with_gex.max() + 2
         fig.update_yaxes(range=[y_min, y_max])
+    elif spot:
+        # Fallback: show ±10% around current price
+        fig.update_yaxes(range=[spot * 0.9, spot * 1.1])
     
     fig.update_layout(
-        template="plotly_dark", height=900,
+        template="plotly_dark",
+        height=900,  # Taller chart for better readability
         margin=dict(l=100, r=60, t=30, b=50),
         xaxis_title="GEX ($ notional per 1% move)",
         yaxis_title="Strike Price",
-        showlegend=False, hovermode="closest",
-        xaxis=dict(showgrid=True, gridcolor="#2d3748", zerolinecolor="#4a5568", tickfont=dict(size=11)),
-        yaxis=dict(showgrid=True, gridcolor="#2d3748", tickfont=dict(size=11)),
+        showlegend=False,
+        hovermode="closest",
+        xaxis=dict(
+            showgrid=True, 
+            gridcolor="#2d3748", 
+            zerolinecolor="#4a5568",
+            tickfont=dict(size=11)
+        ),
+        yaxis=dict(
+            showgrid=True, 
+            gridcolor="#2d3748",
+            tickfont=dict(size=11)
+        ),
         font=dict(size=12)
     )
+    
     st.plotly_chart(fig, use_container_width=True)
     
-    st.caption(f"📊 {ticker} | Spot: ${spot:,.2f} | Net GEX: ${net_gex:,.2f}B")
+    # Footer info
+    st.caption(f"📊 {ticker} | Spot: ${spot:,.2f} | Net GEX: ${net_gex:,.2f}B | Updated: Just now")
+    
     if mode_clean == "API":
-        st.caption("⚠️ 1 of 5 daily API requests used")
+        st.caption("⚠️ 1 of 5 daily API requests used • Resets at midnight UTC")
+
 else:
     st.info("👆 Upload a CSV or click 'Load GEX Data' to begin")
+    st.caption("💡 Tip: For best results, use SPX or SPY with active options chains")
