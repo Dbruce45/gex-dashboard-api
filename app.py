@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -78,13 +77,18 @@ if mode_clean == "CSV":
         df = pd.read_csv(uploaded_file, skiprows=header_row, on_bad_lines='skip')
         
         # Check for multiple expirations and let user select
-        if 'Expiration' in df.columns:
-            unique_exps = df['Expiration'].unique()
+        exp_col = next((col for col in df.columns if 'expir' in str(col).lower()), None)
+        if exp_col:
+            unique_exps = df[exp_col].unique()
             if len(unique_exps) > 1:
                 st.warning(f"⚠️ Multiple expirations detected ({len(unique_exps)}). Please select one below to avoid incorrect calculations.")
                 selected_exp = st.selectbox("Select Expiration to Analyze:", unique_exps, index=0)
-                df = df[df['Expiration'] == selected_exp]
+                df = df[df[exp_col] == selected_exp]
                 st.info(f"✅ Analyzing only: {selected_exp}")
+            else:
+                st.caption(f"📅 Single expiration detected: {unique_exps[0]}")
+        else:
+            st.caption("📅 No expiration column found - analyzing all data")
         
         # Standardize Strike
         strike_col = next((col for col in df.columns if 'strike' in str(col).lower()), None)
@@ -290,11 +294,15 @@ if 'gex_data' in st.session_state:
     # Zero line
     fig.add_vline(x=0, line_dash="solid", line_color="#4a5568", line_width=1)
     
-    # Auto-zoom y-axis to relevant strike range (around current price)
-    if spot:
-        y_min = spot * 0.82  # Show strikes from ~18% below current price
-        y_max = spot * 1.18  # Show strikes up to ~18% above current price
+    # Auto-zoom y-axis to show all strikes with meaningful GEX
+    strikes_with_gex = gex_by_strike[abs(gex_by_strike) > 0.001 * abs(gex_by_strike).max()].index
+    if len(strikes_with_gex) > 0:
+        y_min = strikes_with_gex.min() - 2
+        y_max = strikes_with_gex.max() + 2
         fig.update_yaxes(range=[y_min, y_max])
+    elif spot:
+        # Fallback: show ±10% around current price
+        fig.update_yaxes(range=[spot * 0.9, spot * 1.1])
     
     fig.update_layout(
         template="plotly_dark",
