@@ -301,3 +301,5 @@ if 'gex_data' in st.session_state:
         st.caption("⚠️ 1 of 5 daily API requests used • Resets at midnight UTC")
 
 else:
+    st.info("👆 Upload a CSV or click 'Load GEX Data' to begin")
+    st.caption("💡 Tip: For best results, use SPX or SPY with active options chains")
