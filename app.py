@@ -79,12 +79,23 @@ if mode_clean == "CSV":
         # Check for multiple expirations and let user select
         exp_col = next((col for col in df.columns if 'expir' in str(col).lower()), None)
         if exp_col:
-            unique_exps = df[exp_col].unique()
+            # Clean expiration values (strip whitespace)
+            df[exp_col] = df[exp_col].astype(str).str.strip()
+            unique_exps = sorted(df[exp_col].unique())
+            
             if len(unique_exps) > 1:
                 st.warning(f"⚠️ Multiple expirations detected ({len(unique_exps)}). Please select one below to avoid incorrect calculations.")
                 selected_exp = st.selectbox("Select Expiration to Analyze:", unique_exps, index=0)
-                df = df[df[exp_col] == selected_exp]
-                st.info(f"✅ Analyzing only: {selected_exp}")
+                
+                # Robust filtering
+                before_rows = len(df)
+                df = df[df[exp_col] == selected_exp].copy()
+                after_rows = len(df)
+                
+                st.info(f"✅ Analyzing only: **{selected_exp}**  |  Rows before filter: {before_rows} → after filter: {after_rows}")
+                
+                if after_rows == 0:
+                    st.error("❌ Filtering removed all rows! The selected expiration string may not match exactly. Try a different one or check the raw data.")
             else:
                 st.caption(f"📅 Single expiration detected: {unique_exps[0]}")
         else:
@@ -124,6 +135,8 @@ else:  # FlashAlpha API
                 if isinstance(gex_by_strike, list):
                     gex_dict = {item['strike']: item['net_gex'] for item in gex_by_strike}
                     gex_by_strike = pd.Series(gex_dict)
+                elif isinstance(gex_by_strike, dict):
+                    gex_by_strike = pd.Series(gex_by_strike)
                 
                 # Store in session state for rendering
                 st.session_state['gex_data'] = {
@@ -158,6 +171,34 @@ if mode_clean == "CSV" and df is not None:
     
     net_gex = (df['Call_GEX'].sum() + df['Put_GEX'].sum()) / 1_000_000_000
     gex_by_strike = df.groupby('Strike')[['Call_GEX', 'Put_GEX']].sum().sum(axis=1)
+    
+    # === DIAGNOSTICS ===
+    total_call_oi = df[call_oi_col].sum()
+    total_put_oi = df[put_oi_col].sum()
+    avg_call_gamma = df[call_gamma_col].mean()
+    avg_put_gamma = df[put_gamma_col].mean()
+    raw_call_gex_sum = df['Call_GEX'].sum()
+    raw_put_gex_sum = df['Put_GEX'].sum()
+    num_positive_strikes = (gex_by_strike > 0).sum()
+    num_negative_strikes = (gex_by_strike < 0).sum()
+    
+    with st.expander("🔍 Diagnostics (click to expand)"):
+        st.write(f"**Detected Columns:**")
+        st.write(f"- Call Gamma: `{call_gamma_col}`")
+        st.write(f"- Put Gamma: `{put_gamma_col}`")
+        st.write(f"- Call OI: `{call_oi_col}`")
+        st.write(f"- Put OI: `{put_oi_col}`")
+        st.write(f"**Data Summary:**")
+        st.write(f"- Total Call OI: {total_call_oi:,.0f}")
+        st.write(f"- Total Put OI: {total_put_oi:,.0f}")
+        st.write(f"- Avg Call Gamma: {avg_call_gamma:.6f}")
+        st.write(f"- Avg Put Gamma: {avg_put_gamma:.6f}")
+        st.write(f"**GEX Breakdown:**")
+        st.write(f"- Raw Call GEX Sum: ${raw_call_gex_sum:,.0f}")
+        st.write(f"- Raw Put GEX Sum: ${raw_put_gex_sum:,.0f}")
+        st.write(f"- Positive GEX Strikes: {num_positive_strikes}")
+        st.write(f"- Negative GEX Strikes: {num_negative_strikes}")
+        st.write(f"- Net GEX (before /1B): ${(raw_call_gex_sum + raw_put_gex_sum):,.0f}")
     
     call_wall = gex_by_strike[gex_by_strike > 0].idxmax() if any(gex_by_strike > 0) else None
     put_wall = gex_by_strike[gex_by_strike < 0].idxmin() if any(gex_by_strike < 0) else None
@@ -314,26 +355,3 @@ if 'gex_data' in st.session_state:
         hovermode="closest",
         xaxis=dict(
             showgrid=True, 
-            gridcolor="#2d3748", 
-            zerolinecolor="#4a5568",
-            tickfont=dict(size=11)
-        ),
-        yaxis=dict(
-            showgrid=True, 
-            gridcolor="#2d3748",
-            tickfont=dict(size=11)
-        ),
-        font=dict(size=12)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Footer info
-    st.caption(f"📊 {ticker} | Spot: ${spot:,.2f} | Net GEX: ${net_gex:,.2f}B | Updated: Just now")
-    
-    if mode_clean == "API":
-        st.caption("⚠️ 1 of 5 daily API requests used • Resets at midnight UTC")
-
-else:
-    st.info("👆 Upload a CSV or click 'Load GEX Data' to begin")
-    st.caption("💡 Tip: For best results, use SPX or SPY with active options chains")
