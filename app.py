@@ -76,6 +76,15 @@ if mode_clean == "CSV":
         uploaded_file.seek(0)
         df = pd.read_csv(uploaded_file, skiprows=header_row, on_bad_lines='skip')
         
+        # Check for multiple expirations and let user select
+        if 'Expiration' in df.columns:
+            unique_exps = df['Expiration'].unique()
+            if len(unique_exps) > 1:
+                st.warning(f"⚠️ Multiple expirations detected ({len(unique_exps)}). Please select one below to avoid incorrect calculations.")
+                selected_exp = st.selectbox("Select Expiration to Analyze:", unique_exps, index=0)
+                df = df[df['Expiration'] == selected_exp]
+                st.info(f"✅ Analyzing only: {selected_exp}")
+        
         # Standardize Strike
         strike_col = next((col for col in df.columns if 'strike' in str(col).lower()), None)
         df = df.dropna(subset=[strike_col])
